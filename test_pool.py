@@ -7,61 +7,92 @@ import random
 import heapq
 from collections import namedtuple
 
-RATE=10
-DELAY=0.1
-
 Event = namedtuple('Event', 'ts type conn')
 
-stat_real_connections = 0
-stat_connections = 0
-
 class TestConnection(object):
+    stat_real_connections = 0
+
     def __init__(self):
-        global stat_real_connections
-#        print "Real Open"
-        stat_real_connections += 1
-        
+        TestConnection.stat_real_connections += 1
+
     def close(self):
-#        print "Real Close"
         pass
-    
+
     def rollback(self):
         pass
 
 def test_connect():
     return TestConnection()
 
-TIME = 0
-SAAutoPool._get_time = lambda self: TIME
-pool = SAAutoPool(test_connect, pool_size=50)
-#pool = QueuePool(test_connect, pool_size=20)
+SAAutoPool._get_time = lambda self: PoolTester.TIME
+class PoolTester(object):
+    TIME = 0
 
-queue = []
+    def run_test(self, RATE, DELAY):
+        stat_connections = 0
+        TestConnection.stat_real_connections = 0
+        PoolTester.TIME = 0
 
-heapq.heappush(queue, Event(0, 1, None))
+        pool = SAAutoPool(test_connect, pool_size=50)
 
-i = 0
+        queue = []
 
-while i < 100000:
-    ev = heapq.heappop(queue)
+        heapq.heappush(queue, Event(0, 1, None))
 
-    if ev.type == 1:
-        stat_connections += 1
-        TIME = ev.ts
-        conn = pool.connect()
-        heapq.heappush(queue, Event(ev.ts + random.expovariate(RATE), 1, None) )
-        heapq.heappush(queue, Event(ev.ts + random.expovariate(1/DELAY), -1, conn) )
-    else:
-        ev.conn.close()
-    i += 1
+        i = 0
 
-print "Level mean: %.2f" % pool.mean
-print "Est rate: %.1f" % pool.rate
-print "Queue size: %d" % pool.qsize
-print "Total checkouts: %d" % stat_connections
-print "Total real checkouts: %d" % stat_real_connections
-#print "Max counter: %d" % pool.max_counter
-print "Ratio: %.1f%%" % (100.0 * stat_real_connections / stat_connections)
-print "Rate checkouts: %.1f/s" % (float(stat_connections) / pool.last_ts)
-print "Rate real checkouts: %.1f/s" % (float(stat_real_connections) / pool.last_ts)
+        while i < 100000:
+            ev = heapq.heappop(queue)
+            PoolTester.TIME = ev.ts
 
+            if ev.type == 1:
+                stat_connections += 1
+                conn = pool.connect()
+                heapq.heappush(queue, Event(ev.ts + random.expovariate(RATE), 1, None) )
+                heapq.heappush(queue, Event(ev.ts + random.expovariate(1.0/DELAY), -1, conn) )
+            else:
+                ev.conn.close()
+            i += 1
+
+        stat_real_connection = TestConnection.stat_real_connections
+
+        results=dict(
+            est_mean=pool.mean,
+            est_rate=pool.rate,
+            rate=RATE,
+            delay=DELAY,
+            qsize=pool.qsize,
+            real_checkouts=TestConnection.stat_real_connections,
+            checkouts=stat_connections,
+            ratio=float(TestConnection.stat_real_connections) / stat_connections,
+            total_time=pool.last_ts,
+            connect_interval=pool.last_ts / TestConnection.stat_real_connections,
+        )
+
+#        print "Est mean: %.2f    (expect %f)" % (pool.mean, RATE*DELAY)
+#        print "Est rate: %.1f    (expect %f)" % (pool.rate, RATE)
+#        print "Queue size: %d" % pool.qsize
+#        print "Total checkouts: %d" % stat_connections
+#        print "Total real checkouts: %d" % TestConnection.stat_real_connections
+
+#        print "Ratio: %.1f%%" % (100.0 * TestConnection.stat_real_connections / stat_connections)
+#        print "Rate checkouts: %.1f/s" % (float(stat_connections) / pool.last_ts)
+#        print "Rate real checkouts: %.1f/s" % (float(TestConnection.stat_real_connections) / pool.last_ts)
+
+        return results
+
+STATS = {}
+
+for i in range(-3, 5):
+    rate = 2**i
+    print "%5.3f  " % rate,
+    for j in range(-3, 5):
+        delay = 2**j
+        if rate*delay > 25:
+            break
+        STATS[(i,j)] = res = PoolTester().run_test(rate, delay)
+
+#        print "%5.2f%%  " % (res['ratio']*100.0),
+#        print "%5.1fs  " % (res['connect_interval']),
+        print "%3d  " % (res['qsize']),
+    print
