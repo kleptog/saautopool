@@ -19,8 +19,7 @@ class SAAutoPool(sqlalchemy.pool.QueuePool):
 
         open_interval is the target interval between the opening of new
         connections, in seconds.  The default 5 means to aim for opening a
-        new connection once every 5 seconds.
-        """
+        new connection on average once every 5 seconds.  """
 
         super(SAAutoPool, self).__init__(creator, pool_size=pool_size, **kw)
 
